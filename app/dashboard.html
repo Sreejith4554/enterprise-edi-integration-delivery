@@ -1,13 +1,720 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Atlas Integration Monitor</title>
-<style>body{font:15px system-ui;background:#f4f6f8;color:#182c3e;margin:40px auto;max-width:1200px;padding:0 20px}header{display:flex;justify-content:space-between;align-items:center}h1{margin-bottom:5px}small{color:#536575}button,input,select,textarea{padding:10px;border:1px solid #bcc9d3;border-radius:6px}button{background:#123b57;color:white;cursor:pointer}#cards{display:flex;gap:16px;margin:28px 0}article{background:white;border:1px solid #dce3e8;border-radius:8px;padding:20px;flex:1}b{font-size:26px;display:block}table{width:100%;border-collapse:collapse;background:white}th,td{text-align:left;padding:12px;border-bottom:1px solid #e2e8ed}td button{font-size:12px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#e9eff4;padding:16px}dialog{width:min(900px,90vw);border:1px solid #b4c4cf;border-radius:10px}textarea{width:95%;height:160px}#error{color:#a32222}footer{margin-top:25px}</style>
-<header><div><small>FICTIONAL B2B ORDER-TO-CASH • LOCAL DEMO</small><h1>Atlas Integration Monitor</h1><p>Nordic Retail → Atlas Consumer Products</p></div><a href="/docs">API documentation</a></header>
-<label>API key <input id="key" type="password" autocomplete="off"></label> <button id="refresh">Refresh</button> <label>Status <select id="filter"><option value="">All</option><option>FAILED</option><option>COMPLETED</option><option>VALIDATED</option><option>QUEUED</option><option>PROCESSING</option></select></label>
-<p id="error" role="alert"></p><section id="cards"></section><table><thead><tr><th>Correlation ID</th><th>External order</th><th>Source</th><th>Status</th><th>Received</th><th>ERP order</th></tr></thead><tbody id="rows"></tbody></table><p><button id="prev">Previous</button> <span id="page"></span> <button id="next">Next</button></p>
-<dialog id="detail"><button id="close">Close</button><h2>Message trace</h2><pre id="trace"></pre><label>Corrected payload (validation failures only)<textarea id="replacement"></textarea></label><button id="retry">Retry failed message</button><p id="retryError" role="alert"></p></dialog><footer>Manual refresh • UTC timestamps • Synthetic data only</footer>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Atlas Integration Monitor</title>
+
+<style>
+:root{
+  --navy:#123b57;
+  --text:#182c3e;
+  --muted:#647687;
+  --bg:#f4f6f8;
+  --border:#dce3e8;
+  --success:#176b45;
+  --success-bg:#eaf7f0;
+  --danger:#a32222;
+  --danger-bg:#fff0f0;
+  --pending:#8a6100;
+  --pending-bg:#fff8df;
+}
+
+*{box-sizing:border-box}
+
+body{
+  font:15px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  margin:40px auto;
+  max-width:1200px;
+  padding:0 20px;
+}
+
+header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+h1{margin-bottom:5px}
+h2{margin:0}
+h3{margin:0 0 16px}
+
+small{color:#536575}
+
+button,input,select,textarea{
+  padding:10px;
+  border:1px solid #bcc9d3;
+  border-radius:6px;
+}
+
+button{
+  background:var(--navy);
+  color:white;
+  cursor:pointer;
+}
+
+button:hover{opacity:.92}
+button:disabled{opacity:.45;cursor:not-allowed}
+
+#cards{
+  display:flex;
+  gap:16px;
+  margin:28px 0;
+}
+
+article{
+  background:white;
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:20px;
+  flex:1;
+}
+
+article b{
+  font-size:26px;
+  display:block;
+}
+
+table{
+  width:100%;
+  border-collapse:collapse;
+  background:white;
+}
+
+th,td{
+  text-align:left;
+  padding:12px;
+  border-bottom:1px solid #e2e8ed;
+}
+
+td button{font-size:12px}
+
+#error,
+#retryError{color:var(--danger)}
+
+footer{margin-top:25px}
+
+/* Message trace modal */
+
+dialog{
+  width:min(980px,94vw);
+  max-height:90vh;
+  padding:0;
+  border:1px solid #b4c4cf;
+  border-radius:12px;
+  box-shadow:0 20px 60px rgba(20,40,55,.22);
+}
+
+dialog::backdrop{
+  background:rgba(20,35,45,.35);
+}
+
+.modal-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  padding:24px 26px 18px;
+  border-bottom:1px solid var(--border);
+}
+
+.modal-header p{
+  margin:5px 0 0;
+  color:var(--muted);
+}
+
+#close{
+  background:white;
+  color:var(--text);
+}
+
+.modal-body{
+  padding:24px 26px 30px;
+}
+
+.status-badge{
+  display:inline-block;
+  padding:6px 11px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:700;
+  letter-spacing:.03em;
+}
+
+.status-completed{
+  color:var(--success);
+  background:var(--success-bg);
+}
+
+.status-failed{
+  color:var(--danger);
+  background:var(--danger-bg);
+}
+
+.status-pending{
+  color:var(--pending);
+  background:var(--pending-bg);
+}
+
+.summary-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:12px;
+  margin:22px 0 28px;
+}
+
+.summary-card{
+  border:1px solid var(--border);
+  background:#fff;
+  border-radius:8px;
+  padding:14px;
+}
+
+.summary-card span{
+  display:block;
+  color:var(--muted);
+  font-size:12px;
+  margin-bottom:6px;
+}
+
+.summary-card strong{
+  display:block;
+  font-size:14px;
+  overflow-wrap:anywhere;
+}
+
+.section{
+  margin-top:28px;
+}
+
+.timeline{
+  display:flex;
+  align-items:flex-start;
+  margin-top:14px;
+}
+
+.timeline-step{
+  flex:1;
+  position:relative;
+  text-align:center;
+  min-width:0;
+}
+
+.timeline-step:not(:last-child)::after{
+  content:"";
+  position:absolute;
+  height:2px;
+  background:#b9c8d2;
+  left:50%;
+  right:-50%;
+  top:8px;
+}
+
+.timeline-dot{
+  position:relative;
+  z-index:2;
+  display:block;
+  width:16px;
+  height:16px;
+  border-radius:50%;
+  background:var(--success);
+  margin:0 auto 10px;
+  box-shadow:0 0 0 4px var(--success-bg);
+}
+
+.timeline-step.failed .timeline-dot{
+  background:var(--danger);
+  box-shadow:0 0 0 4px var(--danger-bg);
+}
+
+.timeline-step strong{
+  display:block;
+  font-size:12px;
+}
+
+.timeline-step time{
+  display:block;
+  color:var(--muted);
+  font-size:10px;
+  margin-top:5px;
+}
+
+.order-panel{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:18px;
+  padding:18px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:white;
+}
+
+.order-panel p{
+  margin:5px 0;
+}
+
+.item-line{
+  grid-column:1/-1;
+  border-top:1px solid var(--border);
+  padding-top:14px;
+}
+
+details{
+  margin-top:28px;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:white;
+}
+
+summary{
+  cursor:pointer;
+  padding:15px 18px;
+  font-weight:600;
+}
+
+pre{
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  background:#e9eff4;
+  padding:16px;
+  margin:0;
+  max-height:380px;
+  overflow:auto;
+}
+
+.retry-panel{
+  margin-top:24px;
+  padding:18px;
+  background:#fff;
+  border:1px solid var(--border);
+  border-radius:8px;
+}
+
+textarea{
+  width:100%;
+  height:150px;
+  margin-top:8px;
+}
+
+.retry-panel button{
+  margin-top:10px;
+}
+
+@media(max-width:760px){
+  #cards{display:grid;grid-template-columns:1fr 1fr}
+  .summary-grid{grid-template-columns:1fr}
+  .order-panel{grid-template-columns:1fr}
+  .timeline{display:block}
+  .timeline-step{text-align:left;margin:0 0 18px 8px}
+  .timeline-step:not(:last-child)::after{display:none}
+  .timeline-dot{display:inline-block;margin:0 10px 0 0}
+  table{display:block;overflow-x:auto}
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <div>
+    <small>FICTIONAL B2B ORDER-TO-CASH • LOCAL DEMO</small>
+    <h1>Atlas Integration Monitor</h1>
+    <p>Nordic Retail → Atlas Consumer Products</p>
+  </div>
+  <a href="/docs">API documentation</a>
+</header>
+
+<label>
+  API key
+  <input id="key" type="password" autocomplete="off">
+</label>
+
+<button id="refresh">Refresh</button>
+
+<label>
+  Status
+  <select id="filter">
+    <option value="">All</option>
+    <option>FAILED</option>
+    <option>COMPLETED</option>
+    <option>VALIDATED</option>
+    <option>QUEUED</option>
+    <option>PROCESSING</option>
+  </select>
+</label>
+
+<p id="error" role="alert"></p>
+
+<section id="cards"></section>
+
+<table>
+  <thead>
+    <tr>
+      <th>Correlation ID</th>
+      <th>External order</th>
+      <th>Source</th>
+      <th>Status</th>
+      <th>Received</th>
+      <th>ERP order</th>
+    </tr>
+  </thead>
+  <tbody id="rows"></tbody>
+</table>
+
+<p>
+  <button id="prev">Previous</button>
+  <span id="page"></span>
+  <button id="next">Next</button>
+</p>
+
+<dialog id="detail">
+
+  <div class="modal-header">
+    <div>
+      <small>MESSAGE TRACE</small>
+      <h2 id="traceOrder">—</h2>
+      <p id="traceSubtitle">End-to-end processing evidence</p>
+    </div>
+
+    <div>
+      <span id="traceStatus" class="status-badge"></span>
+      <button id="close">Close</button>
+    </div>
+  </div>
+
+  <div class="modal-body">
+
+    <div id="summary" class="summary-grid"></div>
+
+    <section class="section">
+      <h3>Processing Timeline</h3>
+      <div id="timeline" class="timeline"></div>
+    </section>
+
+    <section class="section">
+      <h3>Order Summary</h3>
+      <div id="orderSummary" class="order-panel"></div>
+    </section>
+
+    <details>
+      <summary>Technical Details — Raw Payload, Canonical Message & Acknowledgement</summary>
+      <pre id="trace"></pre>
+    </details>
+
+    <div class="retry-panel">
+      <label>
+        <strong>Corrected payload</strong>
+        <small>Validation failures only</small>
+        <textarea id="replacement"></textarea>
+      </label>
+
+      <button id="retry">Retry failed message</button>
+      <p id="retryError" role="alert"></p>
+    </div>
+
+  </div>
+</dialog>
+
+<footer>
+  Manual refresh • UTC timestamps • Synthetic data only
+</footer>
+
 <script>
-let offset=0,selected=null,total=0; const $=id=>document.getElementById(id);
-async function api(url,options={}){const r=await fetch(url,{...options,headers:{'X-API-Key':$('key').value,'Content-Type':'application/json'}}); const d=await r.json();if(!r.ok)throw Error(JSON.stringify(d));return d}
-async function show(id){selected=id;$('replacement').value='';$('retryError').textContent='';try{$('trace').textContent=JSON.stringify(await api('/api/v1/messages/'+id),null,2);if(!$('detail').open)$('detail').showModal()}catch(e){$('error').textContent=e.message}}
-async function refresh(){try{$('error').textContent='';const [m,d]=await Promise.all([api('/api/v1/metrics'),api('/api/v1/messages?limit=20&offset='+offset+'&status='+$('filter').value)]);total=d.total;$('cards').replaceChildren();for(const [label,n] of [['Total',m.total],['Completed',m.by_status.COMPLETED||0],['Pending',(m.by_status.VALIDATED||0)+(m.by_status.QUEUED||0)+(m.by_status.PROCESSING||0)],['Failed',m.by_status.FAILED||0]]){const card=document.createElement('article');card.textContent=label;const b=document.createElement('b');b.textContent=n;card.append(b);$('cards').append(card)}$('rows').replaceChildren();for(const r of d.items){const tr=document.createElement('tr');for(const key of ['correlation_id','external_order_id','source','status','received_at','erp_order_id']){const td=document.createElement('td');if(key==='correlation_id'){const b=document.createElement('button');b.textContent=r[key];b.onclick=()=>show(r[key]);td.append(b)}else td.textContent=r[key]||'—';tr.append(td)}$('rows').append(tr)}$('page').textContent=`${offset+1}–${Math.min(offset+20,total)} of ${total}`;$('prev').disabled=offset===0;$('next').disabled=offset+20>=total}catch(e){$('error').textContent=e.message}}
-$('refresh').onclick=refresh;$('filter').onchange=()=>{offset=0;refresh()};$('prev').onclick=()=>{offset=Math.max(0,offset-20);refresh()};$('next').onclick=()=>{offset+=20;refresh()};$('close').onclick=()=>$('detail').close();$('retry').onclick=async()=>{try{await api('/api/v1/messages/'+selected+'/retry',{method:'POST',body:JSON.stringify($('replacement').value?{replacement_raw:$('replacement').value}:{})});await show(selected);await refresh()}catch(e){$('retryError').textContent=e.message}};refresh();
-</script></html>
+let offset=0,selected=null,total=0;
+const $=id=>document.getElementById(id);
+
+async function api(url,options={}){
+  const r=await fetch(url,{
+    ...options,
+    headers:{
+      'X-API-Key':$('key').value,
+      'Content-Type':'application/json'
+    }
+  });
+
+  const d=await r.json();
+
+  if(!r.ok) throw Error(JSON.stringify(d));
+
+  return d;
+}
+
+function statusClass(status){
+  if(status==='COMPLETED') return 'status-completed';
+  if(status==='FAILED') return 'status-failed';
+  return 'status-pending';
+}
+
+function formatTime(value){
+  if(!value) return '—';
+
+  try{
+    return new Date(value).toLocaleString('en-GB',{
+      timeZone:'UTC',
+      day:'2-digit',
+      month:'short',
+      year:'numeric',
+      hour:'2-digit',
+      minute:'2-digit',
+      second:'2-digit'
+    })+' UTC';
+  }catch{
+    return value;
+  }
+}
+
+function addSummary(label,value){
+  const card=document.createElement('div');
+  card.className='summary-card';
+
+  const span=document.createElement('span');
+  span.textContent=label;
+
+  const strong=document.createElement('strong');
+  strong.textContent=value ?? '—';
+
+  card.append(span,strong);
+  $('summary').append(card);
+}
+
+function renderTimeline(steps=[]){
+  $('timeline').replaceChildren();
+
+  for(const step of steps){
+    const node=document.createElement('div');
+    node.className='timeline-step'+
+      (step.status==='FAILED'?' failed':'');
+
+    const dot=document.createElement('span');
+    dot.className='timeline-dot';
+
+    const label=document.createElement('strong');
+    label.textContent=step.status;
+
+    const time=document.createElement('time');
+    time.textContent=formatTime(step.at);
+
+    node.append(dot,label,time);
+    $('timeline').append(node);
+  }
+}
+
+function renderOrder(data){
+  $('orderSummary').replaceChildren();
+
+  const canonical=data.canonical || {};
+  const ship=canonical.ship_to || {};
+  const items=canonical.items || [];
+
+  const destination=document.createElement('div');
+  destination.innerHTML=`
+    <small>SHIP TO</small>
+    <p><strong>${ship.name || '—'}</strong></p>
+    <p>${ship.street || '—'}</p>
+    <p>${ship.postal_code || ''} ${ship.city || ''}</p>
+    <p>${ship.country || '—'}</p>
+  `;
+
+  const delivery=document.createElement('div');
+  delivery.innerHTML=`
+    <small>ORDER DETAILS</small>
+    <p><strong>Order date:</strong> ${canonical.order_date || '—'}</p>
+    <p><strong>Requested delivery:</strong> ${canonical.requested_delivery_date || '—'}</p>
+    <p><strong>Currency:</strong> ${canonical.currency || '—'}</p>
+  `;
+
+  $('orderSummary').append(destination,delivery);
+
+  for(const item of items){
+    const line=document.createElement('div');
+    line.className='item-line';
+
+    line.textContent=
+      `${item.sku || 'Item'} · ${item.description || ''} — `+
+      `${item.quantity || '—'} ${item.unit || ''} × `+
+      `${item.unit_price || '—'} ${canonical.currency || ''}`;
+
+    $('orderSummary').append(line);
+  }
+
+  if(!items.length){
+    const line=document.createElement('div');
+    line.className='item-line';
+    line.textContent='No canonical item details available.';
+    $('orderSummary').append(line);
+  }
+}
+
+async function show(id){
+  selected=id;
+
+  $('replacement').value='';
+  $('retryError').textContent='';
+
+  try{
+    const data=await api('/api/v1/messages/'+id);
+
+    $('traceOrder').textContent=data.external_order_id || 'Message Trace';
+
+    $('traceSubtitle').textContent=
+      `${data.source || 'Unknown source'} • ${data.customer_id || 'Unknown customer'}`;
+
+    $('traceStatus').textContent=data.status || 'UNKNOWN';
+    $('traceStatus').className=
+      'status-badge '+statusClass(data.status);
+
+    $('summary').replaceChildren();
+
+    addSummary('Correlation ID',data.correlation_id);
+    addSummary('Source',data.source);
+    addSummary('Customer',data.customer_id);
+    addSummary('ERP Order',data.erp_order_id || 'Not assigned');
+    addSummary(
+      'Acknowledgement',
+      data.acknowledgement?.status || 'Not available'
+    );
+    addSummary('Retry Count',String(data.retry_count ?? 0));
+
+    renderTimeline(data.processing_steps || []);
+    renderOrder(data);
+
+    $('trace').textContent=JSON.stringify(data,null,2);
+
+    if(!$('detail').open){
+      $('detail').showModal();
+    }
+
+  }catch(e){
+    $('error').textContent=e.message;
+  }
+}
+
+async function refresh(){
+  try{
+    $('error').textContent='';
+
+    const [m,d]=await Promise.all([
+      api('/api/v1/metrics'),
+      api(
+        '/api/v1/messages?limit=20&offset='+
+        offset+
+        '&status='+
+        $('filter').value
+      )
+    ]);
+
+    total=d.total;
+
+    $('cards').replaceChildren();
+
+    for(const [label,n] of [
+      ['Total',m.total],
+      ['Completed',m.by_status.COMPLETED||0],
+      [
+        'Pending',
+        (m.by_status.VALIDATED||0)+
+        (m.by_status.QUEUED||0)+
+        (m.by_status.PROCESSING||0)
+      ],
+      ['Failed',m.by_status.FAILED||0]
+    ]){
+      const card=document.createElement('article');
+      card.textContent=label;
+
+      const b=document.createElement('b');
+      b.textContent=n;
+
+      card.append(b);
+      $('cards').append(card);
+    }
+
+    $('rows').replaceChildren();
+
+    for(const r of d.items){
+      const tr=document.createElement('tr');
+
+      for(const key of [
+        'correlation_id',
+        'external_order_id',
+        'source',
+        'status',
+        'received_at',
+        'erp_order_id'
+      ]){
+        const td=document.createElement('td');
+
+        if(key==='correlation_id'){
+          const b=document.createElement('button');
+          b.textContent=r[key];
+          b.onclick=()=>show(r[key]);
+          td.append(b);
+        }else{
+          td.textContent=r[key]||'—';
+        }
+
+        tr.append(td);
+      }
+
+      $('rows').append(tr);
+    }
+
+    $('page').textContent=
+      `${total ? offset+1 : 0}–${Math.min(offset+20,total)} of ${total}`;
+
+    $('prev').disabled=offset===0;
+    $('next').disabled=offset+20>=total;
+
+  }catch(e){
+    $('error').textContent=e.message;
+  }
+}
+
+$('refresh').onclick=refresh;
+
+$('filter').onchange=()=>{
+  offset=0;
+  refresh();
+};
+
+$('prev').onclick=()=>{
+  offset=Math.max(0,offset-20);
+  refresh();
+};
+
+$('next').onclick=()=>{
+  offset+=20;
+  refresh();
+};
+
+$('close').onclick=()=>{
+  $('detail').close();
+};
+
+$('retry').onclick=async()=>{
+  try{
+    await api(
+      '/api/v1/messages/'+selected+'/retry',
+      {
+        method:'POST',
+        body:JSON.stringify(
+          $('replacement').value
+            ? {replacement_raw:$('replacement').value}
+            : {}
+        )
+      }
+    );
+
+    await show(selected);
+    await refresh();
+
+  }catch(e){
+    $('retryError').textContent=e.message;
+  }
+};
+
+refresh();
+</script>
+
+</body>
+</html>
