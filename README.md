@@ -170,7 +170,6 @@ The repository contains project-delivery documentation alongside the implementat
 | `operations.md` | Operational monitoring and recovery |
 | `release-runbook.md` | Controlled release procedure |
 | `verification.md` | What has actually been verified |
-| `demo-script.md` | Seven-minute stakeholder-style demonstration |
 | `technical-walkthrough.md` | Detailed technical walkthrough |
 | `live-http-evidence.json` | Recorded HTTP verification evidence |
 
