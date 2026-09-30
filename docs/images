@@ -1,0 +1,13 @@
+## Solution Preview
+
+### Operational Dashboard
+
+![Operational dashboard](docs/images/dashboard.png)
+
+The dashboard provides operational visibility across message status, source, customer, processing history, failures, and recovery.
+
+### End-to-End Message Traceability
+
+![Message detail and audit timeline](docs/images/message-timeline.png)
+
+Each transaction is traceable through its correlation ID and chronological processing events, supporting investigation and operational recovery.
