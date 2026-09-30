@@ -1,0 +1,33 @@
+{
+  "mode": "Live HTTP, SQLite, manually invoked production worker; no RabbitMQ or PostgreSQL",
+  "checks": [
+    {
+      "check": "live API and SQLite health; broker honestly unavailable",
+      "result": "PASS"
+    },
+    {
+      "check": "live JSON API \u2192 manually invoked worker \u2192 separate ERP HTTP \u2192 confirmation",
+      "result": "PASS",
+      "correlation_id": "51eaefb5-3c21-465a-84b5-c1113eedca46"
+    },
+    {
+      "check": "live EDI and duplicate handling",
+      "result": "PASS",
+      "correlation_id": "1701e647-ac07-4148-9b4b-043c19a5116e"
+    },
+    {
+      "check": "live invalid-message persistence and correction/retry",
+      "result": "PASS",
+      "correlation_id": "ebb38c57-d2b2-4d3e-ad45-0de62b94af13"
+    },
+    {
+      "check": "live ERP connection refusal followed by corrected endpoint and retry",
+      "result": "PASS",
+      "correlation_id": "79caa00e-3346-4d76-860d-582578053968"
+    },
+    {
+      "check": "live dashboard serving and filtered history",
+      "result": "PASS"
+    }
+  ]
+}

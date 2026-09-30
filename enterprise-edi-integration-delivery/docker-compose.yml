@@ -1,0 +1,84 @@
+x-app: &app
+  build: .
+  environment: &env
+    DATABASE_URL: postgresql+psycopg://integration:${POSTGRES_PASSWORD:?Run scripts/configure.py}@db:5432/integration
+    BROKER_URL: amqp://integration:${RABBITMQ_PASSWORD:?Run scripts/configure.py}@broker:5672/
+    ERP_URL: http://erp:8001
+    INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Run scripts/configure.py}
+    API_KEY: ${API_KEY:-}
+    MAX_RETRIES: ${MAX_RETRIES:-3}
+  depends_on:
+    init:
+      condition: service_completed_successfully
+    broker:
+      condition: service_healthy
+  restart: unless-stopped
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: integration
+      POSTGRES_USER: integration
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/configure.py}
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U integration -d integration"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  broker:
+    hostname: broker
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: integration
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Run scripts/configure.py}
+    volumes: ["rabbitmq-data:/var/lib/rabbitmq"]
+    ports: ["127.0.0.1:15672:15672"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  init:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://integration:${POSTGRES_PASSWORD:?Run scripts/configure.py}@db:5432/integration
+    command: ["python", "-m", "app.db"]
+    depends_on:
+      db:
+        condition: service_healthy
+  api:
+    <<: *app
+    ports: ["127.0.0.1:8000:8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+  erp:
+    <<: *app
+    environment:
+      <<: *env
+      ERP_FAIL_MODE: ${ERP_FAIL_MODE:-false}
+    command: ["python", "-m", "uvicorn", "app.erp:app", "--host", "0.0.0.0", "--port", "8001"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  dispatcher:
+    <<: *app
+    command: ["python", "-m", "app.broker"]
+  worker:
+    <<: *app
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      broker:
+        condition: service_healthy
+      erp:
+        condition: service_healthy
+volumes:
+  postgres-data:
+  rabbitmq-data:

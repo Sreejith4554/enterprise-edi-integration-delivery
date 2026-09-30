@@ -1,0 +1,32 @@
+{
+  "external_order_id": "PO-INVALID-1001",
+  "customer_id": "NORDIC-001",
+  "order_date": "2026-09-30",
+  "currency": "EUR",
+  "requested_delivery_date": "2026-10-07",
+  "ship_to": {
+    "name": "Nordic Retail Warehouse",
+    "street": "Hafenstrasse 10",
+    "city": "Hamburg",
+    "postal_code": "20457",
+    "country": "DE"
+  },
+  "items": [
+    {
+      "line_number": 1,
+      "sku": "UNKNOWN",
+      "description": "Household paper case",
+      "quantity": "12",
+      "unit": "EA",
+      "unit_price": "24.50"
+    },
+    {
+      "line_number": 2,
+      "sku": "ATLAS-200",
+      "description": "Cleaning cloth case",
+      "quantity": "4",
+      "unit": "EA",
+      "unit_price": "18.75"
+    }
+  ]
+}
